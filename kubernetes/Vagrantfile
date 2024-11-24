@@ -1,0 +1,57 @@
+NUM_WORKER_NODES=2
+VM_BOX = "debian/bullseye64"
+IP_NW="10.0.0."
+IP_START=10
+LOCAL_SHARED_FOLDER = 'E:\virtual_machine\shared_folder'
+LOCAL_SSH_PUB_KEY = File.readlines('C:\Users\joe\.ssh\id_rsa.pub').first.strip
+
+Vagrant.configure("2") do |config|
+  # common configuration for all nodes
+  config.vm.provision "shell", env: {"IP_NW" => IP_NW, "IP_START" => IP_START}, inline: <<-SHELL
+    apt-get update -y
+    echo "$IP_NW$((IP_START)) master-node" >> /etc/hosts
+    echo "$IP_NW$((IP_START+1)) worker-node01" >> /etc/hosts
+    echo "$IP_NW$((IP_START+2)) worker-node02" >> /etc/hosts
+    # Add Local SSH public key to the virtual machine
+    if [ ! -d "/home/vagrant/.ssh/" ]; then
+      mkdir -p /home/vagrant/.ssh/
+    fi
+    if [ ! -d "/root/.ssh/" ]; then
+      mkdir -p /root/.ssh/
+    fi
+    echo #{LOCAL_SSH_PUB_KEY} >> /home/vagrant/.ssh/authorized_keys
+    echo #{LOCAL_SSH_PUB_KEY} >> /root/.ssh/authorized_keys
+  SHELL
+
+  config.vm.box = VM_BOX
+  config.vm.box_check_update = true
+  config.vm.synced_folder LOCAL_SHARED_FOLDER, "/root/shared"
+
+  # master node
+  config.vm.define "master" do |master|
+    master.vm.hostname = "master-node"
+    master.vm.network "private_network", ip: IP_NW + "#{IP_START}"
+    master.vm.provider "virtualbox" do |vb|
+        vb.memory = 4048
+        vb.cpus = 2
+    end
+    master.vm.provision "shell", path: "../scripts/bootstrap_debian.sh"
+    master.vm.provision "shell", path: "scripts/common.sh"
+    master.vm.provision "shell", path: "scripts/master.sh"
+  end
+
+  # worker node
+  (1..NUM_WORKER_NODES).each do |i|
+    config.vm.define "node0#{i}" do |node|
+      node.vm.hostname = "worker-node0#{i}"
+      node.vm.network "private_network", ip: IP_NW + "#{IP_START + i}"
+      node.vm.provider "virtualbox" do |vb|
+          vb.memory = 2048
+          vb.cpus = 1
+      end
+      node.vm.provision "shell", path: "../scripts/bootstrap_debian.sh"
+      node.vm.provision "shell", path: "scripts/common.sh"
+      node.vm.provision "shell", path: "scripts/node.sh"
+    end
+  end
+end 
