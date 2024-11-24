@@ -1,47 +1,85 @@
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
-# VM_BOX = "bento/ubuntu-22.04"
-VM_BOX = "debian/bullseye64"
-VM_IP = '10.0.0.30'
-VM_HOSTNAME = 'debian'
-LOCAL_SHARED_FOLDER = 'E:\virtual_machine\shared_folder'
-LOCAL_SSH_PRI_KEY = File.readlines('C:\Users\joe\.ssh\id_rsa').first.strip
-LOCAL_SSH_PUB_KEY = File.readlines('C:\Users\joe\.ssh\id_rsa.pub').first.strip
 
+# VM 基础配置
+VM_CONFIG = {
+  'box'      => 'debian/bullseye64',  # Debian 11
+  'hostname' => 'debian',
+  'ip'       => '10.0.0.30',
+  'memory'   => 4096,
+  'cpus'     => 4,
+  'disk_size'=> '50GB'
+}
+
+# 共享文件夹和SSH密钥配置
+SHARED_CONFIG = {
+  'folder'    => 'C:\Users\Joe\Evirtual_machines\shared_folder',
+  'ssh_pri'   => 'C:\Users\Joe\.ssh\id_ed25519',
+  'ssh_pub'   => 'C:\Users\Joe\.ssh\id_ed25519.pub'
+}
+
+# provision 脚本路径
+PROVISION_SCRIPTS = {
+  'bootstrap' => '../scripts/bootstrap_debian.sh',
+  'nodejs'    => '../scripts/install_nodejs.sh',
+  'python'    => '../scripts/install_python.sh',
+  'docker'    => '../scripts/install_docker.sh'
+}
+
+# 验证必要文件是否存在
+def verify_files_exist
+  SHARED_CONFIG.values.each do |path|
+    unless File.exist?(path)
+      raise "错误: 文件 #{path} 不存在!"
+    end
+  end
+end
 
 Vagrant.configure(2) do |config|
-  config.vm.box = VM_BOX
-  config.vm.disk :disk, size: "40GB", primary: true # export VAGRANT_EXPERIMENTAL="disks"
-  config.vm.hostname = VM_HOSTNAME
-  config.vm.network "private_network", ip: VM_IP
-  config.vm.synced_folder LOCAL_SHARED_FOLDER, "/root/shared"
+  # 验证文件
+  verify_files_exist
+
+  # 基础配置
+  config.vm.box = VM_CONFIG['box']
+  config.vm.hostname = VM_CONFIG['hostname']
+  config.vm.network "private_network", ip: VM_CONFIG['ip']
+  
+  # 磁盘配置 (需要 VAGRANT_EXPERIMENTAL="disks" 环境变量)
+  config.vm.disk :disk, size: VM_CONFIG['disk_size'], primary: true
+  
+  # 共享文件夹配置
+  config.vm.synced_folder SHARED_CONFIG['folder'], "/root/shared"
+
+  # VirtualBox 提供者配置
   config.vm.provider "virtualbox" do |vb|
     vb.gui = false
-    vb.memory = "8192"
-    vb.cpus = 8
+    vb.memory = VM_CONFIG['memory']
+    vb.cpus = VM_CONFIG['cpus']
+    vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
+    vb.customize ["modifyvm", :id, "--natdnsproxy1", "on"]
   end
 
-  # Add Local SSH public key to the virtual machine
+  # SSH 密钥配置
   config.vm.provision "shell", inline: <<-SHELL
-    if [ ! -d "/home/vagrant/.ssh/" ]; then
-      mkdir -p /home/vagrant/.ssh/
-    fi
-    if [ ! -d "/root/.ssh/" ]; then
-      mkdir -p /root/.ssh/
-    fi
-    echo #{LOCAL_SSH_PRI_KEY} >> /root/.ssh/id_rsa
-    echo #{LOCAL_SSH_PUB_KEY} >> /root/.ssh/id_rsa.pub
-    echo #{LOCAL_SSH_PUB_KEY} >> /root/.ssh/authorized_keys
-    chmod 600 /root/.ssh/id_rsa*
+    # 创建必要的 .ssh 目录
+    mkdir -p /root/.ssh/
+    chmod 700 /root/.ssh/
+    
+    # 配置 SSH 密钥
+    echo '#{File.readlines(SHARED_CONFIG['ssh_pri']).first.strip}' > /root/.ssh/id_rsa
+    echo '#{File.readlines(SHARED_CONFIG['ssh_pub']).first.strip}' > /root/.ssh/id_rsa.pub
+    echo '#{File.readlines(SHARED_CONFIG['ssh_pub']).first.strip}' > /root/.ssh/authorized_keys
+    
+    # 设置适当的权限
+    chmod 600 /root/.ssh/id_rsa
+    chmod 644 /root/.ssh/id_rsa.pub /root/.ssh/authorized_keys
   SHELL
 
-  # system provisioning
-  config.vm.provision :shell, path: '../scripts/bootstrap_debian.sh', keep_color: true
-  # install python
-  config.vm.provision :shell, path: '../scripts/install_python.sh', keep_color: true
-  # install nodejs
-  config.vm.provision :shell, path: '../scripts/install_nodejs.sh', keep_color: true
-  # install docker
-  config.vm.provision :shell, path: '../scripts/install_docker.sh', keep_color: true
-
+  # 系统配置脚本
+  PROVISION_SCRIPTS.each do |name, path|
+    config.vm.provision name, 
+      type: "shell",
+      path: path,
+      keep_color: true
+  end
 end

@@ -61,7 +61,7 @@ pip_install pipenv
 
 # jupyter notebook
 # ------------------------------------------------------------------------------
-pip_install ipython jupyter
+# pip_install ipython jupyter
 
 # Testing
 # ------------------------------------------------------------------------------
